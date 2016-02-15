@@ -24,8 +24,14 @@ void prefetch_access(AccessStat stat)
      * Issue a prefetch request if a demand miss occured,
      * and the block is not already in cache.
      */
-    if (stat.miss && !in_cache(pf_addr)) {
-        issue_prefetch(pf_addr);
+    if (!in_cache(pf_addr)) {
+        if (get_prefetch_bit(stat.mem_addr)) {
+            clear_prefetch_bit(stat.mem_addr);
+            issue_prefetch(pf_addr);
+        } else if (stat.miss) {
+            set_prefetch_bit(pf_addr);
+            issue_prefetch(pf_addr);
+        }
     }
 }
 
