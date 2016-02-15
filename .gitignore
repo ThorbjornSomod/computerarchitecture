@@ -1,0 +1,13 @@
+*#*
+*~
+framework-martin/Makefile
+framework-martin/alphaev67-unknown-linux-gnu
+framework-martin/bin
+framework-martin/compile.sh
+framework-martin/lib
+framework-martin/m5
+framework-martin/m5out
+framework-martin/output
+framework-martin/stats.txt
+framework-martin/test_prefetcher.py
+framework
