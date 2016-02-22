@@ -1,42 +1,54 @@
-/*
- * A sample prefetcher which does sequential one-block lookahead.
- * This means that the prefetcher fetches the next block _after_ the one that
- * was just accessed. It also ignores requests to blocks already in the cache.
- */
-
 #include "interface.hh"
 
+#define TABLE_SIZE 128
 
-void prefetch_init(void)
-{
-    /* Called before any calls to prefetch_access. */
-    /* This is the place to initialize data structures. */
+#define NEW 0
+#define STEADY 1
 
+typedef struct {
+    Addr tag;
+    Addr prevAddr;
+    Addr stride;
+    uint8_t state;
+} RPTEntry;
+
+RPTEntry table[TABLE_SIZE];
+
+void prefetch_init(void) {
     DPRINTF(HWPrefetch, "Initialized sequential-on-access prefetcher\n");
 }
 
 void prefetch_access(AccessStat stat)
 {
-    /* pf_addr is now an address within the _next_ cache block */
-    Addr pf_addr = stat.mem_addr + BLOCK_SIZE;
+    int entry = stat.pc % TABLE_SIZE;
+    if (table[entry].tag != stat.pc) {
+	table[entry].state = NEW;
+	table[entry].prevAddr = stat.mem_addr;
+	table[entry].stride = 0;
+	table[entry].tag = stat.pc;
+    } else {
+	switch(table[entry].state) {
+	case NEW:
+	    table[entry].stride = stat.mem_addr - table[entry].prevAddr;
+	    table[entry].prevAddr = stat.mem_addr;
+	    table[entry].state = STEADY;
+	    break;
 
-    /*
-     * Issue a prefetch request if a demand miss occured,
-     * and the block is not already in cache.
-     */
-    if (!in_cache(pf_addr)) {
-        if (get_prefetch_bit(stat.mem_addr)) {
-            clear_prefetch_bit(stat.mem_addr);
-            issue_prefetch(pf_addr);
-        } else if (stat.miss) {
-            set_prefetch_bit(pf_addr);
-            issue_prefetch(pf_addr);
-        }
+	case STEADY:
+	    if ((stat.mem_addr - table[entry].prevAddr) == table[entry].stride) {
+		if (!in_cache(stat.mem_addr + table[entry].stride)) {
+		    issue_prefetch(stat.mem_addr + table[entry].stride);
+		}
+	    }
+	    table[entry].prevAddr = stat.mem_addr;
+	    table[entry].stride = stat.mem_addr - table[entry].prevAddr;
+	    break;
+	}
     }
 }
 
 void prefetch_complete(Addr addr) {
     /*
-     * Called when a block requested by the prefetcher has been loaded.
-     */
-}
+	 * Called when a block requested by the prefetcher has been loaded.
+	 */
+    }
