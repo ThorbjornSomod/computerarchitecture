@@ -58,7 +58,7 @@ void destroy(CircBuffer* buffer) {
 
 
 int min(int a, int b) {
-    return a > b ? a : b;
+    return a > b ? b : a;
 }
 
 
@@ -93,10 +93,10 @@ void prefetch_access(AccessStat stat) {
     push( buffer, stat.mem_addr - table[entry].lastAddr );
     table[entry].lastAddr = stat.mem_addr;
 
-    int last = prev(buffer, buffer->head);
+    int last = buffer->tail;
     int secLast = prev(buffer, last);
 
-    int it; 
+    int it;
     int hit = 0;
 
     for (it = buffer->head; it != secLast; it = next(buffer, it)) {
@@ -112,10 +112,8 @@ void prefetch_access(AccessStat stat) {
 	do {
 	    addr += buffer->buffer[it];
 
-	    if ( !in_cache(addr) &&
-		 addr > table[entry].lastPrefetch) {
+	    if ( !in_cache(addr) ) {
 		issue_prefetch(addr);
-		table[entry].lastPrefetch = addr;
 	    }
 	    it = next(buffer, it);
 	    
