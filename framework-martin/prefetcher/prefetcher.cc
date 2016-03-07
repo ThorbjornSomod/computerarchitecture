@@ -1,88 +1,128 @@
 #include "interface.hh"
 
-#define TABLE_SIZE 128
+#include <stdlib.h>
 
-#define STATE_INIT 0
-#define STATE_TRANSIENT 1
-#define STATE_STEADY 2
-#define STATE_NO_PREDICTION 3
+#define TABLE_SIZE 98
+#define DELTAS_SIZE 19
+
+#define BUFFER_ENTRY Addr
 
 typedef struct {
-    Addr tag;
-    Addr prevAddr;
-    Addr stride;
-    uint8_t state;
-} RPTEntry;
+    uint8_t initialized;
+    int head;
+    int tail;
+    int cap;
+    int size;
+    BUFFER_ENTRY* buffer;
+} CircBuffer;
 
-RPTEntry table[TABLE_SIZE];
+
+typedef struct {
+    Addr pc;
+    Addr lastAddr;
+    Addr lastPrefetch;
+    CircBuffer deltas;
+} DCPTEntry;
+
+
+void init(CircBuffer* buffer, int cap) {
+    buffer->initialized = 1;
+    buffer->head = 0;
+    buffer->tail = 0;
+    buffer->buffer = (BUFFER_ENTRY*) malloc( sizeof(BUFFER_ENTRY) * cap );
+    buffer->cap = cap;
+    buffer->size = 0;
+
+    for (int i = 0; i < buffer->cap; i++) {
+	buffer->buffer[i] = 0;
+    }
+}
+
+
+int prev(CircBuffer* buffer, int entry) {
+    return entry == 0 ? buffer->size-1 : entry-1;
+}
+
+
+int next(CircBuffer* buffer, int entry) {
+    return (entry + 1) % buffer->size;
+}
+
+
+void destroy(CircBuffer* buffer) {
+    if ( buffer->initialized ) {
+	free( buffer->buffer );
+    }
+    buffer->initialized = 0;
+}
+
+
+int min(int a, int b) {
+    return a > b ? a : b;
+}
+
+
+void push(CircBuffer* buffer, BUFFER_ENTRY elem) {
+    buffer->size = min(buffer->size+1, buffer->cap);
+    buffer->buffer[buffer->tail] = elem;
+    buffer->tail = (buffer->tail + 1) % buffer->cap;
+
+    if (buffer->size == buffer->cap) {
+	buffer->head = (buffer->head + 1) % buffer->cap;
+    }
+}
+
+
+static DCPTEntry table[TABLE_SIZE];
+
 
 void prefetch_init(void) {
     DPRINTF(HWPrefetch, "Initialized sequential-on-access prefetcher\n");
 }
 
-void prefetch_access(AccessStat stat)
-{
+
+void prefetch_access(AccessStat stat) {
     int entry = stat.pc % TABLE_SIZE;
-    if (table[entry].tag != stat.pc) {
-	table[entry].prevAddr = stat.mem_addr;
-	table[entry].stride = 0;
-	table[entry].tag = stat.pc;
-	table[entry].state = STATE_INIT;
+    CircBuffer* buffer = &table[entry].deltas;
 
-    } else {
-	int correct = (stat.mem_addr - table[entry].prevAddr) == table[entry].stride;
+    if (table[entry].pc != stat.pc) {
+	destroy(buffer);
+	init(buffer, DELTAS_SIZE);
+    }
 
-	switch(table[entry].state) {
-	case STATE_INIT:
-	    if (!correct) {
-		table[entry].stride = stat.mem_addr - table[entry].prevAddr;
-		table[entry].prevAddr = stat.mem_addr;
-		table[entry].state = STATE_TRANSIENT;
-	    } else {
-		table[entry].prevAddr = stat.mem_addr;
-		table[entry].state = STATE_STEADY;
-	    }
+    push( buffer, stat.mem_addr - table[entry].lastAddr );
+    table[entry].lastAddr = stat.mem_addr;
+
+    int last = prev(buffer, buffer->head);
+    int secLast = prev(buffer, last);
+
+    int it; 
+    int hit = 0;
+
+    for (it = buffer->head; it != secLast; it = next(buffer, it)) {
+	if (buffer->buffer[it] == buffer->buffer[secLast] &&
+	    buffer->buffer[next(buffer, it)] == buffer->buffer[last]) {
+	    hit = 1;
 	    break;
-
-	case STATE_TRANSIENT:
-	    if (!correct) {
-		table[entry].stride = stat.mem_addr - table[entry].prevAddr;
-		table[entry].prevAddr = stat.mem_addr;
-		table[entry].state = STATE_NO_PREDICTION;
-	    } else {
-		table[entry].prevAddr = stat.mem_addr;
-		table[entry].state = STATE_STEADY;
-	    }
-	    break;
-
-	case STATE_NO_PREDICTION:
-	    if (!correct) {
-		table[entry].stride = stat.mem_addr - table[entry].prevAddr;
-		table[entry].prevAddr = stat.mem_addr;
-	    } else {
-		table[entry].prevAddr = stat.mem_addr;
-		table[entry].state = STATE_TRANSIENT;
-	    }
-	    break;
-
-	case STATE_STEADY:
-	    if (!correct) {
-		table[entry].prevAddr = stat.mem_addr;
-		table[entry].state = STATE_INIT;
-	    } else {
-		table[entry].prevAddr = stat.mem_addr;
-	    }
-	    break;
-	}
-
-	int prefetchAddr = table[entry].prevAddr + table[entry].stride;
-	if ( table[entry].state == STATE_STEADY &&
-	     correct &&
-	     !in_cache(prefetchAddr) ) {
-	    issue_prefetch( prefetchAddr );
 	}
     }
+
+    if ( hit ) {
+	Addr addr = table[entry].lastAddr;
+	do {
+	    addr += buffer->buffer[it];
+
+	    if ( !in_cache(addr) &&
+		 addr > table[entry].lastPrefetch) {
+		issue_prefetch(addr);
+		table[entry].lastPrefetch = addr;
+	    }
+	    it = next(buffer, it);
+	    
+	} while (it != buffer->head);
+    }
 }
+
 
 void prefetch_complete(Addr addr) {
     /*
