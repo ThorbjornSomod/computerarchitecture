@@ -11,3 +11,7 @@ framework-martin/output
 framework-martin/stats.txt
 framework-martin/test_prefetcher.py
 framework
+
+#Intelli-files
+./idea/*
+
