@@ -2,8 +2,8 @@
 
 #include <stdlib.h>
 
-#define TABLE_SIZE 98
-#define DELTAS_SIZE 19
+#define TABLE_SIZE 128
+#define DELTAS_SIZE 4
 
 #define BUFFER_ENTRY Addr
 
@@ -63,13 +63,16 @@ int min(int a, int b) {
 
 
 void push(CircBuffer* buffer, BUFFER_ENTRY elem) {
-    buffer->size = min(buffer->size+1, buffer->cap);
+    if (buffer->size > 0) {
+	buffer->tail = (buffer->tail + 1) % buffer->cap;
+    }
+
     buffer->buffer[buffer->tail] = elem;
-    buffer->tail = (buffer->tail + 1) % buffer->cap;
 
     if (buffer->size == buffer->cap) {
 	buffer->head = (buffer->head + 1) % buffer->cap;
     }
+    buffer->size = min(buffer->size+1, buffer->cap);
 }
 
 
@@ -77,7 +80,6 @@ static DCPTEntry table[TABLE_SIZE];
 
 
 void prefetch_init(void) {
-    DPRINTF(HWPrefetch, "Initialized sequential-on-access prefetcher\n");
 }
 
 
@@ -88,6 +90,7 @@ void prefetch_access(AccessStat stat) {
     if (table[entry].pc != stat.pc) {
 	destroy(buffer);
 	init(buffer, DELTAS_SIZE);
+	table[entry].pc = stat.pc;
     }
 
     push( buffer, stat.mem_addr - table[entry].lastAddr );
@@ -112,8 +115,10 @@ void prefetch_access(AccessStat stat) {
 	do {
 	    addr += buffer->buffer[it];
 
-	    if ( !in_cache(addr) ) {
+	    if ( !in_cache(addr) &&
+		 table[entry].lastPrefetch < addr) {
 		issue_prefetch(addr);
+		table[entry].lastPrefetch = addr;
 	    }
 	    it = next(buffer, it);
 	    
