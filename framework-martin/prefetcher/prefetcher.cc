@@ -1,7 +1,7 @@
 #include "interface.hh"
 
 #define TABLE_SIZE 128 //The size of the DCPTEntry table
-#define DELTAS_SIZE 11 //The size of the circular buffer used for the deltas
+#define DELTAS_SIZE 5 //The size of the circular buffer used for the deltas
 
 #define BUFFER_ENTRY uint16_t //The data type of the deltas
 
@@ -40,6 +40,14 @@ void init(CircBuffer* buffer) {
     buffer->tail = 0;
     buffer->cap = DELTAS_SIZE;
     buffer->size = 0;
+}
+
+
+void init(DCPTEntry* entry, Addr pc) {
+    entry->pc = pc;
+    entry->lastAddr = 0;
+    entry->lastPrefetch = 0;
+    init(&(entry->deltas));
 }
 
 
@@ -86,15 +94,15 @@ void prefetch_init(void) {
 
 void prefetch_access(AccessStat stat) {
     int entry = stat.pc % TABLE_SIZE;
-    CircBuffer* buffer = &table[entry].deltas;
 
     /* Checks whether there is an entry corresponding to the pc.
      * If not, it creates one, possibly deleting an older entry.
      */
     if (table[entry].pc != stat.pc) {
-	init(buffer);
-	table[entry].pc = stat.pc;
+	init(&table[entry], stat.pc);
     }
+
+    CircBuffer* buffer = &table[entry].deltas;
 
     /* Pushes the new delta onto the buffer and updates lastAddr */
     push( buffer, stat.mem_addr - table[entry].lastAddr );
