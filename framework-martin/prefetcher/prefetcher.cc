@@ -1,7 +1,7 @@
 #include "interface.hh"
 
-#define TABLE_SIZE 128 //The size of the DCPTEntry table
-#define DELTAS_SIZE 5 //The size of the circular buffer used for the deltas
+#define TABLE_SIZE 204 //The size of the DCPTEntry table
+#define DELTAS_SIZE 6 //The size of the circular buffer used for the deltas
 
 #define BUFFER_ENTRY uint16_t //The data type of the deltas
 
@@ -23,13 +23,11 @@ typedef struct {
 /* The DCPTEntry datastructure:
  * pc: Program Counter of the entry
  * lastAddr: The most recently referenced address in a load/store instruction
- * lastPrefetch: The most recently prefetched address
  * deltas: The circular buffer of address deltas
  */
 typedef struct {
     Addr pc;
     Addr lastAddr;
-    Addr lastPrefetch;
     CircBuffer deltas;
 } DCPTEntry;
 
@@ -43,10 +41,9 @@ void init( CircBuffer* buffer ) {
 }
 
 
-void init( DCPTEntry* entry, Addr pc ) {
+void init( DCPTEntry* entry, Addr pc, Addr addr ) {
     entry->pc = pc;
-    entry->lastAddr = 0;
-    entry->lastPrefetch = 0;
+    entry->lastAddr = addr;
     init( &(entry->deltas) );
 }
 
@@ -94,19 +91,24 @@ void prefetch_init( void ) {
 
 void prefetch_access( AccessStat stat ) {
     int entry = stat.pc % TABLE_SIZE;
+    CircBuffer* buffer = &table[entry].deltas;
 
     /* Checks whether there is an entry corresponding to the pc.
      * If not, it creates one, possibly deleting an older entry.
      */
     if ( table[entry].pc != stat.pc ) {
-	init( &table[entry], stat.pc );
+	init( &table[entry], stat.pc, stat.mem_addr );
+	return;
     }
-
-    CircBuffer* buffer = &table[entry].deltas;
 
     /* Pushes the new delta onto the buffer and updates lastAddr */
     push( buffer, stat.mem_addr - table[entry].lastAddr );
     table[entry].lastAddr = stat.mem_addr;
+
+    /* It makes no sense to find patterns with less than three deltas */
+    if ( buffer->size < 3 ) {
+	return;
+    }
 
 
     /* This part checks for pattern matches corresponding to
