@@ -25,17 +25,14 @@ void prefetch_access(AccessStat stat)
      * and the block is not already in cache.
      */
     if (!in_cache(pf_addr)) {
-        if (get_prefetch_bit(stat.mem_addr)) {
-            clear_prefetch_bit(stat.mem_addr);
-            issue_prefetch(pf_addr);
-        } else if (stat.miss) {
-            set_prefetch_bit(pf_addr);
+        if (stat.miss || get_prefetch_bit(stat.mem_addr)) {
             issue_prefetch(pf_addr);
         }
     }
 }
 
 void prefetch_complete(Addr addr) {
+  set_prefetch_bit(addr);
     /*
      * Called when a block requested by the prefetcher has been loaded.
      */
