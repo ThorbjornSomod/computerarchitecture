@@ -3,7 +3,7 @@
 #define TABLE_SIZE 204 //The size of the DCPTEntry table
 #define DELTAS_SIZE 6 //The size of the circular buffer used for the deltas
 
-#define BUFFER_ENTRY uint16_t //The data type of the deltas
+#define BUFFER_ENTRY int16_t //The data type of the deltas
 
 /* The circular buffer data structure:
  * head: Specifies the position of the oldest element in the buffer
